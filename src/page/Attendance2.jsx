@@ -16,27 +16,27 @@ export default function LivenessDetector({ onPass }) {
   const videoRef = useRef(null);
   const startX = useRef(null);
 
-  const [step, setStep] = useState(0);
+  const [count, setCount] = useState(0);
   const [challenge, setChallenge] = useState(null);
-  const [status, setStatus] = useState("WAITING");
-  // WAITING | PASS | FAIL | DONE
+  const [status, setStatus] = useState("RUNNING");
+  // RUNNING | FAIL | PASS
 
-  const pickChallenge = () =>
+  const randomChallenge = () =>
     CHALLENGES[Math.floor(Math.random() * CHALLENGES.length)];
 
   const reset = () => {
-    setStep(0);
-    setStatus("WAITING");
-    setChallenge(pickChallenge());
+    setCount(0);
+    setStatus("RUNNING");
+    setChallenge(randomChallenge());
     startX.current = null;
   };
 
   useEffect(() => {
-    setChallenge(pickChallenge());
+    setChallenge(randomChallenge());
   }, []);
 
   useEffect(() => {
-    if (!challenge) return;
+    if (!challenge || status !== "RUNNING") return;
 
     const faceMesh = new FaceMesh({
       locateFile: (file) =>
@@ -48,10 +48,10 @@ export default function LivenessDetector({ onPass }) {
       refineLandmarks: true,
     });
 
-    faceMesh.onResults((results) => {
-      if (!results.multiFaceLandmarks?.length || status !== "WAITING") return;
+    faceMesh.onResults((res) => {
+      if (!res.multiFaceLandmarks?.length) return;
 
-      const lm = results.multiFaceLandmarks[0];
+      const lm = res.multiFaceLandmarks[0];
       const noseX = lm[1].x * 1000;
 
       if (!startX.current) {
@@ -59,25 +59,23 @@ export default function LivenessDetector({ onPass }) {
         return;
       }
 
-      const pass = (() => {
-        if (challenge.key === "TURN_LEFT") return noseX < startX.current - 30;
+      let passed = false;
 
-        if (challenge.key === "TURN_RIGHT") return noseX > startX.current + 30;
+      if (challenge.key === "TURN_LEFT") passed = noseX < startX.current - 30;
 
-        if (challenge.key === "BLINK") return lm[159].y - lm[145].y < 0.01;
+      if (challenge.key === "TURN_RIGHT") passed = noseX > startX.current + 30;
 
-        if (challenge.key === "MOUTH") return lm[14].y - lm[13].y > 0.02;
+      if (challenge.key === "BLINK") passed = lm[159].y - lm[145].y < 0.01;
 
-        return false;
-      })();
+      if (challenge.key === "MOUTH") passed = lm[14].y - lm[13].y > 0.02;
 
-      if (pass) {
-        if (step + 1 >= REQUIRED) {
-          setStatus("DONE");
+      if (passed) {
+        if (count + 1 === REQUIRED) {
+          setStatus("PASS");
           onPass();
         } else {
-          setStep((s) => s + 1);
-          setChallenge(pickChallenge());
+          setCount((c) => c + 1);
+          setChallenge(randomChallenge());
           startX.current = null;
         }
       }
@@ -94,22 +92,22 @@ export default function LivenessDetector({ onPass }) {
     camera.start();
 
     const timeout = setTimeout(() => {
-      if (status === "WAITING") setStatus("FAIL");
+      setStatus("FAIL");
     }, TIME_LIMIT);
 
     return () => clearTimeout(timeout);
-  }, [challenge, step, status]);
+  }, [challenge, count, status]);
 
   return (
     <div className="flex flex-col items-center space-y-2 border p-3 rounded-lg">
       <video ref={videoRef} autoPlay muted className="rounded-md w-64" />
 
-      {status !== "DONE" && (
+      {status === "RUNNING" && (
         <>
-          <p className="font-semibold text-sm">
-            Step {step + 1} / {REQUIRED}
+          <p className="text-sm font-semibold">
+            Step {count + 1} / {REQUIRED}
           </p>
-          <p className="text-sm text-blue-600">{challenge?.text}</p>
+          <p className="text-blue-600 text-sm">{challenge?.text}</p>
         </>
       )}
 
@@ -125,7 +123,7 @@ export default function LivenessDetector({ onPass }) {
         </>
       )}
 
-      {status === "DONE" && (
+      {status === "PASS" && (
         <p className="text-green-600 text-sm font-semibold">
           Liveness verified ✅
         </p>
