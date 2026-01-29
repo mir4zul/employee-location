@@ -9,12 +9,15 @@ export default function LivenessDetector({ onPass }) {
   const cameraRef = useRef(null);
   const faceMeshRef = useRef(null);
 
-  const eyeStateRef = useRef("OPEN"); // 👁 blink state
+  const eyeBaselineRef = useRef(null);
+  const blinkedRef = useRef(false);
 
   const [status, setStatus] = useState("RUNNING");
-  // RUNNING | LIVENESS_PASS | MATCHING | VERIFIED | FAIL
   const [capturedImage, setCapturedImage] = useState(null);
 
+  /* -----------------------------
+     Capture photo
+  ------------------------------*/
   const capturePhoto = () => {
     const canvas = document.createElement("canvas");
     canvas.width = videoRef.current.videoWidth;
@@ -23,12 +26,13 @@ export default function LivenessDetector({ onPass }) {
     const ctx = canvas.getContext("2d");
     ctx.drawImage(videoRef.current, 0, 0);
 
-    const image = canvas.toDataURL("image/jpeg");
-    setCapturedImage(image);
-
+    setCapturedImage(canvas.toDataURL("image/jpeg"));
     cameraRef.current?.stop();
   };
 
+  /* -----------------------------
+     Init FaceMesh
+  ------------------------------*/
   useEffect(() => {
     faceMeshRef.current = new FaceMesh({
       locateFile: (file) =>
@@ -43,25 +47,28 @@ export default function LivenessDetector({ onPass }) {
     faceMeshRef.current.onResults((res) => {
       if (!res.multiFaceLandmarks?.length) return;
       if (status !== "RUNNING") return;
+      if (blinkedRef.current) return;
 
       const lm = res.multiFaceLandmarks[0];
 
-      // 👁 LEFT EYE openness
-      const eyeOpenValue = lm[159].y - lm[145].y;
+      // 👁 Both eyes openness
+      const leftEye = Math.abs(lm[159].y - lm[145].y);
+      const rightEye = Math.abs(lm[386].y - lm[374].y);
 
-      const EYE_OPEN = 0.018;
-      const EYE_CLOSED = 0.01;
+      const eyeOpenValue = (leftEye + rightEye) / 2;
 
-      // OPEN → CLOSED
-      if (eyeOpenValue < EYE_CLOSED && eyeStateRef.current === "OPEN") {
-        eyeStateRef.current = "CLOSED";
+      // 1️⃣ Set baseline (first few frames)
+      if (!eyeBaselineRef.current) {
+        eyeBaselineRef.current = eyeOpenValue;
+        return;
       }
 
-      // CLOSED → OPEN  ✅ REAL BLINK
-      if (eyeOpenValue > EYE_OPEN && eyeStateRef.current === "CLOSED") {
-        eyeStateRef.current = "OPEN";
+      const baseline = eyeBaselineRef.current;
 
-        // 🎯 BLINK VERIFIED
+      // 2️⃣ Blink = 40% drop from baseline
+      if (eyeOpenValue < baseline * 0.6) {
+        blinkedRef.current = true;
+
         setStatus("LIVENESS_PASS");
         capturePhoto();
       }
@@ -108,13 +115,20 @@ export default function LivenessDetector({ onPass }) {
       .catch(() => setStatus("FAIL"));
   }, [status, capturedImage]);
 
+  /* -----------------------------
+     Retry
+  ------------------------------*/
   const retry = () => {
-    eyeStateRef.current = "OPEN";
+    blinkedRef.current = false;
+    eyeBaselineRef.current = null;
     setCapturedImage(null);
     setStatus("RUNNING");
     cameraRef.current?.start();
   };
 
+  /* -----------------------------
+     UI
+  ------------------------------*/
   return (
     <div className="flex flex-col items-center space-y-3 border p-4 rounded-lg">
       {status === "RUNNING" && (
