@@ -6,16 +6,16 @@ import GoogleMapIframe from "../components/GoogleMapIframe.jsx";
 
 export default function Attendance() {
   const [videoBlob, setVideoBlob] = useState(null);
-  const { location, dms, error, loading } = useGeolocation();
-
+  const { location, error, loading } = useGeolocation();
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    if (!location) return;
+    if (!location) {
+      setReady(false);
+      return;
+    }
 
-    setReady(false);
-
-    const t = setTimeout(() => setReady(true), 500); // small delay for iframe
+    const t = setTimeout(() => setReady(true), 500);
     return () => clearTimeout(t);
   }, [location]);
 
@@ -29,13 +29,16 @@ export default function Attendance() {
 
       <VideoRecorder onRecorded={setVideoBlob} />
 
+      {/* ❌ No fake fallback message */}
       {error && (
-        <div className="flex items-center text-yellow-600 text-sm">
-          <MapPinIcon className="h-5 w-5 mr-1" />
-          Location auto-detect failed, using fallback
+        <div className="flex items-center text-red-600 text-sm max-w-md text-center">
+          <MapPinIcon className="h-5 w-5 mr-1 shrink-0" />
+          Unable to detect location. Please enable location or try another
+          network.
         </div>
       )}
 
+      {/* ✅ Only show map if location REALLY exists */}
       {ready && location && (
         <>
           <GoogleMapIframe
@@ -50,8 +53,22 @@ export default function Attendance() {
         </>
       )}
 
-      {videoBlob && ready && (
-        <button className="btn-primary mt-4">Submit Attendance</button>
+      {/* ✅ Decide your business rule here */}
+      {videoBlob && (
+        <button
+          className="btn-primary mt-4"
+          disabled={!location} // 🔥 strict attendance
+        >
+          Submit Attendance
+        </button>
+      )}
+
+      {/* Optional hint */}
+      {!location && (
+        <p className="text-xs text-gray-400 text-center max-w-sm">
+          Location may fail on desktop, VPN, or restricted networks. Mobile GPS
+          works best.
+        </p>
       )}
     </div>
   );

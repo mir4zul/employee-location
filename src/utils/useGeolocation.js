@@ -4,7 +4,7 @@ export function useGeolocation() {
   const [location, setLocation] = useState(null);
   const [dms, setDms] = useState(null);
   const [error, setError] = useState(null);
-  const [loading, setLoading] = useState(true); // ✅ new
+  const [loading, setLoading] = useState(true);
 
   const toDMS = (deg, type) => {
     const d = Math.floor(Math.abs(deg));
@@ -16,19 +16,9 @@ export function useGeolocation() {
   };
 
   useEffect(() => {
-    function setFallback() {
-      const fallback = { latitude: 23.8103, longitude: 90.4125 }; // Dhaka
-      setLocation(fallback);
-      setDms({
-        latitude: toDMS(fallback.latitude, "lat"),
-        longitude: toDMS(fallback.longitude, "lon"),
-      });
-      setLoading(false); // ✅ mark ready
-    }
-
     if (!navigator.geolocation) {
       setError("Geolocation not supported by browser");
-      setFallback();
+      setLoading(false);
       return;
     }
 
@@ -38,25 +28,26 @@ export function useGeolocation() {
           latitude: pos.coords.latitude,
           longitude: pos.coords.longitude,
         };
+
         setLocation(loc);
         setDms({
           latitude: toDMS(loc.latitude, "lat"),
           longitude: toDMS(loc.longitude, "lon"),
         });
-        setLoading(false); // ✅ mark ready
+        setLoading(false);
       },
       (err) => {
         console.warn("Geolocation failed:", err.message);
         setError(err.message);
-        setFallback();
+        setLoading(false);
       },
       {
-        enableHighAccuracy: false,
+        enableHighAccuracy: true,
         timeout: 10000,
-        maximumAge: 60000,
-      }
+        maximumAge: 0,
+      },
     );
   }, []);
 
-  return { location, dms, error, loading }; // ✅ return loading
+  return { location, dms, error, loading };
 }
