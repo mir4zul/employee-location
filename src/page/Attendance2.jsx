@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from "react";
 import { FaceMesh } from "@mediapipe/face_mesh";
 import { Camera } from "@mediapipe/camera_utils";
 
-// 🔴 replace with real employee image URL
 const EMPLOYEE_IMAGE_URL = "/employee.jpg";
 
 export default function LivenessDetector({ onPass }) {
@@ -10,14 +9,12 @@ export default function LivenessDetector({ onPass }) {
   const cameraRef = useRef(null);
   const faceMeshRef = useRef(null);
 
+  const eyeStateRef = useRef("OPEN"); // 👁 blink state
+
   const [status, setStatus] = useState("RUNNING");
   // RUNNING | LIVENESS_PASS | MATCHING | VERIFIED | FAIL
-
   const [capturedImage, setCapturedImage] = useState(null);
 
-  /* -----------------------------
-     Capture photo & stop camera
-  ------------------------------*/
   const capturePhoto = () => {
     const canvas = document.createElement("canvas");
     canvas.width = videoRef.current.videoWidth;
@@ -32,9 +29,6 @@ export default function LivenessDetector({ onPass }) {
     cameraRef.current?.stop();
   };
 
-  /* -----------------------------
-     Init FaceMesh + Camera
-  ------------------------------*/
   useEffect(() => {
     faceMeshRef.current = new FaceMesh({
       locateFile: (file) =>
@@ -52,10 +46,22 @@ export default function LivenessDetector({ onPass }) {
 
       const lm = res.multiFaceLandmarks[0];
 
-      // 👁 Blink detection (eye height becomes very small)
-      const leftEyeOpen = lm[159].y - lm[145].y;
+      // 👁 LEFT EYE openness
+      const eyeOpenValue = lm[159].y - lm[145].y;
 
-      if (leftEyeOpen < 0.01) {
+      const EYE_OPEN = 0.018;
+      const EYE_CLOSED = 0.01;
+
+      // OPEN → CLOSED
+      if (eyeOpenValue < EYE_CLOSED && eyeStateRef.current === "OPEN") {
+        eyeStateRef.current = "CLOSED";
+      }
+
+      // CLOSED → OPEN  ✅ REAL BLINK
+      if (eyeOpenValue > EYE_OPEN && eyeStateRef.current === "CLOSED") {
+        eyeStateRef.current = "OPEN";
+
+        // 🎯 BLINK VERIFIED
         setStatus("LIVENESS_PASS");
         capturePhoto();
       }
@@ -71,20 +77,17 @@ export default function LivenessDetector({ onPass }) {
 
     cameraRef.current.start();
 
-    return () => {
-      cameraRef.current?.stop();
-    };
+    return () => cameraRef.current?.stop();
   }, []);
 
   /* -----------------------------
-     Face comparison (backend)
+     Face comparison
   ------------------------------*/
   useEffect(() => {
     if (status !== "LIVENESS_PASS" || !capturedImage) return;
 
     setStatus("MATCHING");
 
-    // ⚠️ Replace with real backend API
     fetch("/api/face-compare", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -93,9 +96,9 @@ export default function LivenessDetector({ onPass }) {
         employeeImage: EMPLOYEE_IMAGE_URL,
       }),
     })
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.match) {
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.match) {
           setStatus("VERIFIED");
           onPass?.();
         } else {
@@ -105,18 +108,13 @@ export default function LivenessDetector({ onPass }) {
       .catch(() => setStatus("FAIL"));
   }, [status, capturedImage]);
 
-  /* -----------------------------
-     Retry
-  ------------------------------*/
   const retry = () => {
+    eyeStateRef.current = "OPEN";
     setCapturedImage(null);
     setStatus("RUNNING");
     cameraRef.current?.start();
   };
 
-  /* -----------------------------
-     UI
-  ------------------------------*/
   return (
     <div className="flex flex-col items-center space-y-3 border p-4 rounded-lg">
       {status === "RUNNING" && (
