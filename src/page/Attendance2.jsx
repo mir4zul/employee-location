@@ -1,37 +1,19 @@
 import { useEffect, useRef, useState } from "react";
 import { FaceMesh } from "@mediapipe/face_mesh";
 import { Camera } from "@mediapipe/camera_utils";
-import image from "../assets/Miraz.jpg";
-
-const CHALLENGES = [
-  { key: "BLINK", text: "Blink your eyes" },
-  { key: "TURN_LEFT", text: "Turn your head LEFT" },
-  { key: "TURN_RIGHT", text: "Turn your head RIGHT" },
-  { key: "MOUTH", text: "Open your mouth" },
-];
-
-const REQUIRED = 4;
-const TIME_LIMIT = 5000;
 
 // 🔴 replace with real employee image URL
-const EMPLOYEE_IMAGE_URL = image;
+const EMPLOYEE_IMAGE_URL = "/employee.jpg";
 
 export default function LivenessDetector({ onPass }) {
   const videoRef = useRef(null);
   const cameraRef = useRef(null);
   const faceMeshRef = useRef(null);
-  const timeoutRef = useRef(null);
-  const startX = useRef(null);
 
-  const [challenge, setChallenge] = useState(null);
-  const [count, setCount] = useState(0);
   const [status, setStatus] = useState("RUNNING");
   // RUNNING | LIVENESS_PASS | MATCHING | VERIFIED | FAIL
 
   const [capturedImage, setCapturedImage] = useState(null);
-
-  const randomChallenge = () =>
-    CHALLENGES[Math.floor(Math.random() * CHALLENGES.length)];
 
   /* -----------------------------
      Capture photo & stop camera
@@ -51,11 +33,9 @@ export default function LivenessDetector({ onPass }) {
   };
 
   /* -----------------------------
-     Initialize FaceMesh + Camera
+     Init FaceMesh + Camera
   ------------------------------*/
   useEffect(() => {
-    setChallenge(randomChallenge());
-
     faceMeshRef.current = new FaceMesh({
       locateFile: (file) =>
         `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`,
@@ -71,31 +51,13 @@ export default function LivenessDetector({ onPass }) {
       if (status !== "RUNNING") return;
 
       const lm = res.multiFaceLandmarks[0];
-      const noseX = lm[1].x * 1000;
 
-      if (!startX.current) startX.current = noseX;
+      // 👁 Blink detection (eye height becomes very small)
+      const leftEyeOpen = lm[159].y - lm[145].y;
 
-      let passed = false;
-
-      if (challenge?.key === "TURN_LEFT") passed = noseX < startX.current - 30;
-
-      if (challenge?.key === "TURN_RIGHT") passed = noseX > startX.current + 30;
-
-      if (challenge?.key === "BLINK") passed = lm[159].y - lm[145].y < 0.01;
-
-      if (challenge?.key === "MOUTH") passed = lm[14].y - lm[13].y > 0.02;
-
-      if (!passed) return;
-
-      // ✔ challenge passed
-      if (count + 1 === REQUIRED) {
+      if (leftEyeOpen < 0.01) {
         setStatus("LIVENESS_PASS");
         capturePhoto();
-        clearTimeout(timeoutRef.current);
-      } else {
-        setCount((c) => c + 1);
-        setChallenge(randomChallenge());
-        startX.current = null;
       }
     });
 
@@ -109,18 +71,13 @@ export default function LivenessDetector({ onPass }) {
 
     cameraRef.current.start();
 
-    timeoutRef.current = setTimeout(() => {
-      setStatus("FAIL");
-    }, TIME_LIMIT);
-
     return () => {
-      clearTimeout(timeoutRef.current);
       cameraRef.current?.stop();
     };
   }, []);
 
   /* -----------------------------
-     Face comparison (BACKEND)
+     Face comparison (backend)
   ------------------------------*/
   useEffect(() => {
     if (status !== "LIVENESS_PASS" || !capturedImage) return;
@@ -152,11 +109,8 @@ export default function LivenessDetector({ onPass }) {
      Retry
   ------------------------------*/
   const retry = () => {
-    setCount(0);
     setCapturedImage(null);
     setStatus("RUNNING");
-    setChallenge(randomChallenge());
-    startX.current = null;
     cameraRef.current?.start();
   };
 
@@ -168,10 +122,9 @@ export default function LivenessDetector({ onPass }) {
       {status === "RUNNING" && (
         <>
           <video ref={videoRef} autoPlay muted className="w-64 rounded" />
-          <p className="text-sm font-semibold">
-            Step {count + 1} / {REQUIRED}
+          <p className="text-blue-600 text-sm font-semibold">
+            👁 Please blink your eyes
           </p>
-          <p className="text-blue-600 text-sm">{challenge?.text}</p>
         </>
       )}
 
