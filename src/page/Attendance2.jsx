@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { FaceMesh } from "@mediapipe/face_mesh";
 import { Camera } from "@mediapipe/camera_utils";
+import image from "../assets/Miraz.jpg";
 
 const CHALLENGES = [
   { key: "BLINK", text: "Blink your eyes" },
@@ -12,37 +13,49 @@ const CHALLENGES = [
 const REQUIRED = 4;
 const TIME_LIMIT = 5000;
 
+// 🔴 replace with real employee image URL
+const EMPLOYEE_IMAGE_URL = image;
+
 export default function LivenessDetector({ onPass }) {
   const videoRef = useRef(null);
   const cameraRef = useRef(null);
   const faceMeshRef = useRef(null);
-  const startX = useRef(null);
   const timeoutRef = useRef(null);
+  const startX = useRef(null);
 
-  const [count, setCount] = useState(0);
   const [challenge, setChallenge] = useState(null);
-  const [status, setStatus] = useState("RUNNING"); // RUNNING | FAIL | PASS
+  const [count, setCount] = useState(0);
+  const [status, setStatus] = useState("RUNNING");
+  // RUNNING | LIVENESS_PASS | MATCHING | VERIFIED | FAIL
+
+  const [capturedImage, setCapturedImage] = useState(null);
 
   const randomChallenge = () =>
     CHALLENGES[Math.floor(Math.random() * CHALLENGES.length)];
 
-  const reset = () => {
-    setCount(0);
-    setStatus("RUNNING");
-    setChallenge(randomChallenge());
-    startX.current = null;
+  /* -----------------------------
+     Capture photo & stop camera
+  ------------------------------*/
+  const capturePhoto = () => {
+    const canvas = document.createElement("canvas");
+    canvas.width = videoRef.current.videoWidth;
+    canvas.height = videoRef.current.videoHeight;
 
-    // Clear previous timeout
-    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(videoRef.current, 0, 0);
 
-    // Restart timeout for new run
-    timeoutRef.current = setTimeout(() => {
-      if (status === "RUNNING") setStatus("FAIL");
-    }, TIME_LIMIT);
+    const image = canvas.toDataURL("image/jpeg");
+    setCapturedImage(image);
+
+    cameraRef.current?.stop();
   };
 
-  // Initialize FaceMesh and Camera ONCE
+  /* -----------------------------
+     Initialize FaceMesh + Camera
+  ------------------------------*/
   useEffect(() => {
+    setChallenge(randomChallenge());
+
     faceMeshRef.current = new FaceMesh({
       locateFile: (file) =>
         `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`,
@@ -63,59 +76,98 @@ export default function LivenessDetector({ onPass }) {
       if (!startX.current) startX.current = noseX;
 
       let passed = false;
+
       if (challenge?.key === "TURN_LEFT") passed = noseX < startX.current - 30;
+
       if (challenge?.key === "TURN_RIGHT") passed = noseX > startX.current + 30;
+
       if (challenge?.key === "BLINK") passed = lm[159].y - lm[145].y < 0.01;
+
       if (challenge?.key === "MOUTH") passed = lm[14].y - lm[13].y > 0.02;
 
-      if (passed) {
-        if (count + 1 === REQUIRED) {
-          setStatus("PASS");
-          onPass();
-          if (timeoutRef.current) clearTimeout(timeoutRef.current);
-        } else {
-          setCount((c) => c + 1);
-          setChallenge(randomChallenge());
-          startX.current = null;
-        }
+      if (!passed) return;
+
+      // ✔ challenge passed
+      if (count + 1 === REQUIRED) {
+        setStatus("LIVENESS_PASS");
+        capturePhoto();
+        clearTimeout(timeoutRef.current);
+      } else {
+        setCount((c) => c + 1);
+        setChallenge(randomChallenge());
+        startX.current = null;
       }
     });
 
     cameraRef.current = new Camera(videoRef.current, {
+      width: 320,
+      height: 240,
       onFrame: async () => {
         await faceMeshRef.current.send({ image: videoRef.current });
       },
-      width: 320,
-      height: 240,
     });
 
     cameraRef.current.start();
 
-    // Initial timeout
     timeoutRef.current = setTimeout(() => {
-      if (status === "RUNNING") setStatus("FAIL");
+      setStatus("FAIL");
     }, TIME_LIMIT);
 
     return () => {
-      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      clearTimeout(timeoutRef.current);
+      cameraRef.current?.stop();
     };
   }, []);
 
-  // Reset timeout on challenge change
+  /* -----------------------------
+     Face comparison (BACKEND)
+  ------------------------------*/
   useEffect(() => {
-    if (status !== "RUNNING") return;
-    if (timeoutRef.current) clearTimeout(timeoutRef.current);
-    timeoutRef.current = setTimeout(() => {
-      if (status === "RUNNING") setStatus("FAIL");
-    }, TIME_LIMIT);
-  }, [challenge]);
+    if (status !== "LIVENESS_PASS" || !capturedImage) return;
 
+    setStatus("MATCHING");
+
+    // ⚠️ Replace with real backend API
+    fetch("/api/face-compare", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        liveImage: capturedImage,
+        employeeImage: EMPLOYEE_IMAGE_URL,
+      }),
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.match) {
+          setStatus("VERIFIED");
+          onPass?.();
+        } else {
+          setStatus("FAIL");
+        }
+      })
+      .catch(() => setStatus("FAIL"));
+  }, [status, capturedImage]);
+
+  /* -----------------------------
+     Retry
+  ------------------------------*/
+  const retry = () => {
+    setCount(0);
+    setCapturedImage(null);
+    setStatus("RUNNING");
+    setChallenge(randomChallenge());
+    startX.current = null;
+    cameraRef.current?.start();
+  };
+
+  /* -----------------------------
+     UI
+  ------------------------------*/
   return (
-    <div className="flex flex-col items-center space-y-2 border p-3 rounded-lg">
-      <video ref={videoRef} autoPlay muted className="rounded-md w-64" />
-
+    <div className="flex flex-col items-center space-y-3 border p-4 rounded-lg">
       {status === "RUNNING" && (
         <>
+          <video ref={videoRef} autoPlay muted className="w-64 rounded" />
           <p className="text-sm font-semibold">
             Step {count + 1} / {REQUIRED}
           </p>
@@ -123,22 +175,28 @@ export default function LivenessDetector({ onPass }) {
         </>
       )}
 
+      {status === "MATCHING" && (
+        <p className="text-blue-600 text-sm">
+          🔍 Verifying employee identity...
+        </p>
+      )}
+
+      {status === "VERIFIED" && (
+        <p className="text-green-600 font-semibold">
+          ✅ Verification completed successfully
+        </p>
+      )}
+
       {status === "FAIL" && (
         <>
-          <p className="text-red-600 text-sm">Verification failed ❌</p>
+          <p className="text-red-600 text-sm">❌ Verification failed</p>
           <button
-            onClick={reset}
+            onClick={retry}
             className="px-3 py-1 text-sm rounded bg-gray-200"
           >
             Retry
           </button>
         </>
-      )}
-
-      {status === "PASS" && (
-        <p className="text-green-600 text-sm font-semibold">
-          Liveness verified ✅
-        </p>
       )}
     </div>
   );
