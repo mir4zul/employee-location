@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import * as faceapi from "face-api.js";
+import des from "./assets/descriptor.json";
 
 export default function FaceAuth({ userId }) {
   const videoRef = useRef(null);
@@ -148,6 +149,8 @@ export default function FaceAuth({ userId }) {
     const descriptor = await captureFaceDescriptor();
     if (!descriptor) return;
 
+    console.log("descriptor", descriptor);
+
     await fetch("/api/register-face", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -175,11 +178,13 @@ export default function FaceAuth({ userId }) {
     const res = await fetch(`/api/user-face/${userId}`);
     const { face_descriptor } = await res.json();
 
-    const storedDescriptor = new Float32Array(face_descriptor);
+    const storedDescriptor = new Float32Array(des);
     const distance = faceapi.euclideanDistance(
       liveDescriptor,
       storedDescriptor,
     );
+
+    console.log("distance", distance);
 
     if (distance < 0.5) {
       alert("✅ Real person verified");
