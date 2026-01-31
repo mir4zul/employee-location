@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { FaceMesh } from "@mediapipe/face_mesh";
 import { Camera } from "@mediapipe/camera_utils";
+import employee from "../assets/Miraz.jpg";
 
-const EMPLOYEE_IMAGE_URL = "/employee.jpg";
+const EMPLOYEE_IMAGE_URL = employee;
 
 export default function LivenessDetector({ onPass }) {
   const videoRef = useRef(null);
